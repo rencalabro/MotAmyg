@@ -1,0 +1,206 @@
+in---
+title: "confidence_interval"
+output: html_document
+---
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+rm(list=(ls()))
+######################################################################## 
+#                               Load Packages                          #
+########################################################################
+library(plyr)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(car)
+library(Hmisc)  
+library(lmerTest) 
+library(broom)
+library(cowplot)
+library(ridge)
+library(lmridge)
+library(rtf)
+###################### Script Specific Functions #######################
+asNumeric <- function(x) as.numeric(as.character(x))
+factorsNumeric <- function(d) modifyList(d, lapply(d[, sapply(d, is.factor)],   
+                                                   asNumeric))
+sem <- 
+  function(x) {sd(x,na.rm = T) / sqrt(length(x))}
+myPalette <- c("#4C72B0","#C44E52")
+redo_calc = 0;
+```
+
+```{r load-data}
+# Read data
+AllData = read.csv("../../1_data/1_behav/AllData.csv")
+
+# Convert to factors
+AllData$Sub = as.factor(AllData$Sub)
+AllData$Pred = as.factor(AllData$Pred)
+AllData$Want2See = as.factor(AllData$Want2See)
+AllData$Con = as.factor(AllData$Con)
+AllData$Con_Rev = factor(AllData$Con, levels = c('Coop','Comp'))
+AllData$Cat_n_z = scale(AllData$Cat_n)
+AllData$CatDiff = abs(50 - AllData$Cat_n)*2
+
+```
+
+```{r}
+
+amyg_data = read.csv("../../3_results/2_glm/cue_align_native/cope/amygdala_harvard_bin50_cope.csv",header=T)
+AllData = cbind(AllData, amyg_data)
+
+dlpfc_data = read.csv("../../3_results/2_glm/cue_align_native/cope/DLPFC_harvard_bin50_cope.csv",header=T)
+AllData = cbind(AllData, dlpfc_data)
+
+dacc_data = read.csv("../../3_results/2_glm/cue_align_native/cope/dACC_harvard_bin50_cope.csv",header=T)
+AllData = cbind(AllData, dacc_data)
+
+ipc_data = read.csv("../../3_results/2_glm/cue_align_native/cope/IPC_harvard_bin50_cope.csv",header=T)
+AllData = cbind(AllData, ipc_data)
+
+ai_data = read.csv("../../3_results/2_glm/cue_align_native/cope/antInsula_harvard_bin50_cope.csv",header=T)
+AllData = cbind(AllData, ai_data)
+
+
+cls_prob = read.csv("../../3_results/4_TrialClassification/align_native_delete1_trialbetas_copemap_scaled/TrainTrial/vvs/AllProb.csv")
+
+AllData = cbind(AllData, cls_prob)
+
+AllData = filter(AllData,!is.na(Choice))
+
+AllRes = NULL
+
+```
+
+### LME models
+
+# Amygdala
+
+```{r}
+
+amyg_res = lmer(cls_prob ~ Want2See*amygdala_harvard_bin50_cope_scaled + Cat_n_z + (Want2See*amygdala_harvard_bin50_cope_scaled|Sub), data =AllData, REML = FALSE)
+
+Estimate = summary(amyg_res)$coefficients["Want2See1:amygdala_harvard_bin50_cope_scaled",1]
+LowCF = confint(amyg_res, method = "Wald")["Want2See1:amygdala_harvard_bin50_cope_scaled",1]
+HighCF = confint(amyg_res, method = "Wald")["Want2See1:amygdala_harvard_bin50_cope_scaled",2]
+
+thisRes = cbind(Estimate,LowCF)
+thisRes = cbind(thisRes, HighCF)
+
+AllRes = rbind(AllRes,thisRes)
+```
+
+#DLPFC
+
+``` {r}
+
+dlpfc_res = lmer(cls_prob ~ Want2See*DLPFC_cope_scaled + Cat_n_z + (Want2See*DLPFC_cope_scaled|Sub), data =AllData, REML = FALSE)
+
+Estimate = summary(dlpfc_res)$coefficients["Want2See1:DLPFC_cope_scaled",1]
+LowCF = confint(dlpfc_res, method = "Wald")["Want2See1:DLPFC_cope_scaled",1]
+HighCF = confint(dlpfc_res, method = "Wald")["Want2See1:DLPFC_cope_scaled",2]
+
+thisRes = cbind(Estimate,LowCF)
+thisRes = cbind(thisRes, HighCF)
+
+AllRes = rbind(AllRes,thisRes)
+```
+
+# dACC
+
+``` {r}
+
+dacc_res = lmer(cls_prob ~ Want2See*dACC_cope_scaled + Cat_n_z + (Want2See*dACC_cope_scaled|Sub), data =AllData)
+
+Estimate = summary(dacc_res)$coefficients["Want2See1:dACC_cope_scaled",1]
+LowCF = confint(dacc_res, method = "Wald")["Want2See1:dACC_cope_scaled",1]
+HighCF = confint(dacc_res, method = "Wald")["Want2See1:dACC_cope_scaled",2]
+
+thisRes = cbind(Estimate,LowCF)
+thisRes = cbind(thisRes, HighCF)
+
+AllRes = rbind(AllRes,thisRes)
+
+```
+
+# IPL
+
+``` {r}
+
+ipl_res = lmer(cls_prob ~ Want2See*IPC_cope_scaled + Cat_n_z + (Want2See*IPC_cope_scaled|Sub), data =AllData, REML = FALSE)
+
+Estimate = summary(ipl_res)$coefficients["Want2See1:IPC_cope_scaled",1]
+LowCF = confint(ipl_res, method = "Wald")["Want2See1:IPC_cope_scaled",1]
+HighCF = confint(ipl_res, method = "Wald")["Want2See1:IPC_cope_scaled",2]
+
+thisRes = cbind(Estimate,LowCF)
+thisRes = cbind(thisRes, HighCF)
+
+AllRes = rbind(AllRes,thisRes)
+
+```
+
+# AI
+
+``` {r}
+
+ant_insula_res = lmer(cls_prob ~ Want2See*antInsula_cope_scaled + Cat_n_z + (Want2See*antInsula_cope_scaled|Sub), data =AllData, REML = FALSE)
+
+Estimate = summary(ant_insula_res)$coefficients["Want2See1:antInsula_cope_scaled",1]
+LowCF = confint(ant_insula_res, method = "Wald")["Want2See1:antInsula_cope_scaled",1]
+HighCF = confint(ant_insula_res, method = "Wald")["Want2See1:antInsula_cope_scaled",2]
+
+thisRes = cbind(Estimate,LowCF)
+thisRes = cbind(thisRes, HighCF)
+
+AllRes = rbind(AllRes,thisRes)
+
+```
+
+``` {r}
+# Get coefficients
+amyg_data = as.data.frame(summary(amyg_res)$coefficients)
+amyg_data$Variable = row.names(amyg_data)
+
+dlpfc_data = as.data.frame(summary(dlpfc_res)$coefficients)
+dlpfc_data$Variable = row.names(dlpfc_data)
+
+dacc_data = as.data.frame(summary(dacc_res)$coefficients)
+dacc_data$Variable = row.names(dacc_data)
+
+ipl_data = as.data.frame(summary(ipl_res)$coefficients)
+ipl_data$Variable = row.names(ipl_data)
+
+ant_insula_data = as.data.frame(summary(ant_insula_res)$coefficients)
+ant_insula_data$Variable = row.names(ant_insula_data)
+
+all_coef = rbind(amyg_data, dlpfc_data, dacc_data, ipl_data, ant_insula_data)
+
+```
+
+```{r}
+# Get confidence intervals
+df_con = as.data.frame(AllRes)
+df_con$Variable <- c("amygdala", "DLPFC", "dACC", "IPL", "anterior insula")
+df_con$Variable <- factor(df_con$Variable, levels=c("amygdala", "DLPFC", "dACC", "IPL", "anterior insula"))
+
+```
+
+``` {r fig.width = 10, fig.height = 4}
+ggplot(df_con, aes(x = Variable, y = Estimate)) + 
+  geom_point(size = 5) +
+  geom_errorbar(aes(ymin = LowCF, ymax = HighCF), width = 0.1) + 
+  geom_hline(yintercept = 0, linetype = 2, size = 1) +
+  theme(panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.line = element_line(colour = "black"),
+      axis.text.x  = element_text(size=20,color="black"),
+      axis.text.y  = element_text(size=20,color="black"),
+      axis.title.x = element_blank(),
+      axis.title.y = element_blank(),
+      strip.background = element_blank()) +
+  coord_cartesian(ylim=c(-.025,.1)) + xlab("") + ylab("Estimate")
+
+```
