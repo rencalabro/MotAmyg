@@ -1,3 +1,3 @@
 # Trial-by-trial fluctuations in amygdala activity track motivational enhancement of desirable sensory evidence during perceptual decision-making
 
-This repository will host analysis scripts and behavioral data for our manuscript _Trial-by-trial fluctuations in amygdala activity track motivational enhancement of desirable sensory evidence during perceptual decision-making_. A preprint can be found [here](https://www.biorxiv.org/content/10.1101/2021.12.03.471135v2).
+This repository hosts analysis scripts and behavioral data for our _Cerebral Cortex_ paper _Trial-by-trial fluctuations in amygdala activity track motivational enhancement of desirable sensory evidence during perceptual decision-making_. A link to the article can be found [here](https://academic.oup.com/cercor/advance-article/doi/10.1093/cercor/bhac452/6832152?login=true).
