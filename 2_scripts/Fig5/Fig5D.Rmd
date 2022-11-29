@@ -1,0 +1,143 @@
+---
+title: "Individual subject fits"
+output: html_document
+---
+
+Use this for RT plots; compare with real RT?
+
+
+```{r set-up, warning=FALSE, message=FALSE, results="hide"}
+# Clear workspace
+rm(list = ls())
+
+# Load helper functions
+source('helper_functions.R')
+
+# Import libraries
+packages = c("tidyr","dplyr","ggplot2","lme4","lmerTest","Hmisc","car","lmtest","Rarity","cowplot")
+ipak(packages)
+  
+library("dplyr")
+library("ggplot2")
+
+```
+
+### Load Data
+```{r load-data}
+# Read data
+AllData = read.csv("../../1_data/1_behav/AllData.csv")
+
+roi_data = read.csv("../../3_results/2_glm/cue_align_native/cope/amygdala_harvard_bin50_cope.csv",header=T)
+AllData = cbind(AllData,roi_data)
+
+cls_prob = read.csv("../../3_results/4_TrialClassification/align_native_delete1_trialbetas_copemap_scaled/TrainTrial/vvs/AllProb.csv")
+AllData = cbind(AllData,cls_prob)
+```
+
+```{r}
+# AMYGDALA MEDIAN SPLIT
+
+medianAmyg = AllData %>%
+  group_by(Sub) %>%
+  dplyr::summarise(medianAmyg = median(amygdala_harvard_bin50_cope_scaled))
+
+AllData = full_join(AllData,medianAmyg)
+
+AllData$amygmedian = ifelse(AllData$amygdala_harvard_bin50_cope_scaled > 
+                                      AllData$medianAmyg,
+                                      "High","Low")
+
+AllData$Sub = as.factor(AllData$Sub)
+AllData$Pred = as.factor(AllData$Pred)
+AllData$Want2See = as.factor(AllData$Want2See)
+AllData$Con_Rev = factor(AllData$Con, levels = c('Coop','Comp'))
+
+AllData_ValidTrials = dplyr::filter(AllData, !(is.na(Choice)))
+AllData_ValidTrials$RT = as.numeric(as.character(AllData_ValidTrials$RT))
+
+AllData_ValidTrials$motivation = as.factor(AllData_ValidTrials$Want2See)
+AllData_ValidTrials$motivation = ifelse(AllData_ValidTrials$motivation == "0", "Face", "Scene")
+AllData_ValidTrials$motivation = factor(AllData_ValidTrials$motivation)
+
+AllData_ValidTrials = AllData_ValidTrials %>%
+  group_by(Sub, motivation, Cat_n) %>% 
+  mutate(Q = factor(findInterval(RT, quantile(RT, c(0.5)))))
+
+
+```
+
+```{r eval = F}
+resThreeWay = glmer(Choice ~ Cat_n + motivation * RT * amygdala_harvard_bin50_cope_scaled +
+                      (motivation * RT * amygdala_harvard_bin50_cope_scaled|Sub), AllData_ValidTrials,
+                       family = binomial(link="logit"), control = glmerControl(calc.derivs = FALSE))
+
+summary(resThreeWay)
+
+
+confint(resThreeWay, method="Wald")
+```
+
+```{r}
+resHighFast = glmer(Choice ~ Cat_n + motivation + (motivation |Sub), 
+                   subset(AllData_ValidTrials, amygmedian == "High" & Q == "0"),
+                       family = binomial(link="logit"), control = glmerControl(calc.derivs = FALSE))
+
+summary(resHighFast)
+
+resHighSlow = glmer(Choice ~ Cat_n + motivation + (motivation |Sub), 
+                   subset(AllData_ValidTrials, amygmedian == "High" & Q == "1"),
+                       family = binomial(link="logit"), control = glmerControl(calc.derivs = FALSE))
+
+summary(resHighSlow)
+
+
+resLowFast = glmer(Choice ~ Cat_n + motivation + (motivation |Sub), 
+                   subset(AllData_ValidTrials, amygmedian == "Low" & Q == "0"),
+                       family = binomial(link="logit"), control = glmerControl(calc.derivs = FALSE))
+
+summary(resLowFast)
+
+
+resLowSlow = glmer(Choice ~ Cat_n + motivation + (motivation |Sub), 
+                   subset(AllData_ValidTrials, amygmedian == "Low" & Q == "1"),
+                       family = binomial(link="logit"), control = glmerControl(calc.derivs = FALSE))
+
+summary(resLowSlow)
+
+```
+
+``` {r fig.width = 7, fig.height = 3}
+
+# interaction graph
+
+interaction_df <- data.frame(type = c("int","int","int","int"),
+                             RT = c("Fast","Slow","Fast","Slow"),
+                             AmygMedian = c("High","High","Low","Low"),
+                             p_scene = c(1.06021,0.8875,0.98806,0.33219),
+                             SE = c(0.41178,0.2455,0.34324,0.16186)
+                             )
+
+interaction_df$RT = as.factor(interaction_df$RT)
+interaction_df$AmygMedian = as.factor(interaction_df$AmygMedian)
+
+ggplot(interaction_df, aes(x = RT, y = p_scene)) +
+  geom_point(size = 2.75, alpha = 1) +
+  geom_errorbar(aes(ymin = p_scene - SE, ymax = p_scene + SE), width = .1) +
+  scale_colour_manual(values=myPalette) +
+  facet_grid(type ~ AmygMedian) +
+  theme(axis.title.x = element_text(size=18),
+        axis.title.y = element_text(size=18),
+        axis.text.x  = element_text(size=14),
+        axis.text.y  = element_text(size=14),
+        axis.line = element_line(colour = "black"),
+        panel.background = element_rect(fill="white"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        strip.background.x = element_blank(),
+        strip.background.y = element_blank(),
+        strip.text.x = element_text(face = "bold", size = 14),
+        strip.text.y = element_text(face = "bold", size = 14)) +
+  ylab("Bmotivation") +
+  coord_cartesian(ylim = c(0, 1.55))
+
+```

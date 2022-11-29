@@ -1,0 +1,279 @@
+---
+title: "Posterior Predictive Check for Pupil Data"
+output: html_document
+---
+
+```{r load_libraries, echo = F, warning=FALSE, message=FALSE}
+rm(list=ls())
+
+# Load packages
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(lmerTest)
+
+# Script Specific Functions
+asNumeric <- function(x) as.numeric(as.character(x))
+factorsNumeric <- function(d) modifyList(d, lapply(d[, sapply(d, is.factor)],   
+                                                   asNumeric))
+sem <- 
+  function(x) {sd(x,na.rm = T) / sqrt(length(x))}
+
+```
+
+### Data
+
+```{r load-data}
+# Read data
+AllData = read.csv("../../1_data/1_behav/AllData.csv")
+
+roi_data = read.csv("../../3_results/2_glm/cue_align_native/cope/amygdala_harvard_bin50_cope.csv",header=T)
+AllData = cbind(AllData,roi_data)
+
+cls_prob = read.csv("../../3_results/4_TrialClassification/align_native_delete1_trialbetas_copemap_scaled/TrainTrial/vvs/AllProb.csv")
+AllData = cbind(AllData,cls_prob)
+
+```
+
+```{r}
+# AMYGDALA MEDIAN SPLIT
+medianAmyg = AllData %>%
+  group_by(Sub) %>%
+  dplyr::summarise(medianAmyg = median(amygdala_harvard_bin50_cope_scaled))
+
+AllData = full_join(AllData,medianAmyg)
+
+AllData$amygmedian = ifelse(AllData$amygdala_harvard_bin50_cope_scaled > 
+                                      AllData$medianAmyg,
+                                      "High","Low")
+
+```
+
+``` {r}
+# Convert to factors
+AllData$Sub = as.factor(AllData$Sub)
+AllData$Pred = as.factor(AllData$Pred)
+AllData$motivation = as.factor(AllData$Want2See)
+AllData$Con_Rev = factor(AllData$Con, levels = c('Coop','Comp'))
+
+AllData_ValidTrials = dplyr::filter(AllData, !(is.na(Choice)))
+AllData_ValidTrials$RT_Rev = as.numeric(as.character(AllData_ValidTrials$RT))
+AllData_ValidTrials$RT_Rev[AllData_ValidTrials$Choice < 0.5] = AllData_ValidTrials$RT_Rev[AllData_ValidTrials$Choice < 0.5] * - 1
+AllData_ValidTrials$RT = as.numeric(as.character(AllData_ValidTrials$RT))
+
+AllData_ValidTrials$motivation = ifelse(AllData_ValidTrials$motivation == "0", "Face", "Scene")
+AllData_ValidTrials$motivation = factor(AllData_ValidTrials$motivation)
+```
+
+``` {r}
+# CRF_high
+calc_crf_high2 = function(Data) { # Cat_n > 45 &  Cat_n < 55
+  CRF_high = subset(Data, Cat_n > 45 &  Cat_n < 55 & amygmedian == "High") %>%
+  group_by(Sub, motivation, Cat_n) %>% 
+  mutate(RT = factor(findInterval(RT, quantile(RT, c(0.5))),
+                            labels = c('Fast','Slow'))) %>%
+  group_by(Sub, motivation, RT, Cat_n) %>%
+  dplyr::summarise(meanC = mean(Choice), SE = sem(Choice)) %>%
+  group_by(motivation, RT, Cat_n) %>%
+  dplyr::summarise(p_scene = mean(meanC), SE = sem(meanC)) 
+  
+  return(CRF_high)
+}
+
+# CRF_low
+calc_crf_low2 = function(Data) { # 
+  CRF_low = subset(Data, Cat_n > 45 &  Cat_n < 55 & amygmedian == "Low") %>%
+  group_by(Sub, motivation, Cat_n) %>%
+  mutate(RT = factor(findInterval(RT, quantile(RT, c(0.5))),
+                          labels = c('Fast','Slow'))) %>%
+  group_by(Sub, motivation, RT, Cat_n) %>%
+  dplyr::summarise(meanC = mean(Choice), SE = sem(Choice)) %>%
+  group_by(motivation, RT, Cat_n) %>%
+  dplyr::summarise(p_scene = mean(meanC), SE = sem(meanC)) 
+
+  return(CRF_low)
+}
+
+```
+
+``` {r}
+CRF_high = calc_crf_high2(AllData_ValidTrials)
+CRF_low = calc_crf_low2(AllData_ValidTrials)
+  
+# Add amygdala
+CRF_high$AmygMedian = "High"
+CRF_low$AmygMedian = "Low"
+  
+  
+CRF_full = bind_rows(CRF_high, CRF_low)
+CRF_full = subset(CRF_full, select = -c(3))
+CRF_full$type = "Data"
+
+```
+
+### Drift Model
+
+```{r}
+drift_model = read.csv('../../3_results/3_ddm/simulations/sim_traj_amyg/drift/Sim1.csv', header = T)
+drift_model$stim = 0
+
+drift_model = dplyr::filter(drift_model, condition != 0)
+
+drift_model$motivation = ifelse(drift_model$condition == -1, 
+                          'Face', ifelse(drift_model$condition == 1,
+                          'Scene',
+                          'NA'))
+
+drift_model$motivation = factor(drift_model$motivation)
+
+drift_model_quantile = group_by(drift_model,subj_idx) %>%
+  dplyr::summarise(median = median(amyg))
+
+drift_model = left_join(drift_model, drift_model_quantile)
+
+drift_model$AmygMedian = ifelse(drift_model$amyg > drift_model$median,
+                             "High",
+                             "Low")
+  
+CRF_drift = drift_model %>%
+  group_by(subj_idx, motivation, stim, AmygMedian) %>%
+  mutate(RT = factor(findInterval(rt, quantile(rt, 0.5)), labels = c('Fast','Slow'))) %>%
+  group_by(subj_idx, motivation, RT, AmygMedian) %>%
+  dplyr::summarise(meanC = mean(response), SE = sem(response)) %>%
+  group_by(motivation, RT, AmygMedian) %>%
+  dplyr::summarise(p_scene = mean(meanC), SE = sem(meanC))
+
+CRF_drift$type = "v"
+```
+
+
+```{r}
+drift_model_subj = drift_model %>%
+  group_by(subj_idx, motivation, AmygMedian) %>%
+  mutate(RT = factor(findInterval(rt, quantile(rt, 0.5)), labels = c('Fast','Slow'))) %>%
+  group_by(subj_idx, motivation, RT, AmygMedian) %>%
+  dplyr::summarise(meanC = mean(response), SE = sem(response))
+```
+
+## Bias Model
+
+```{r}
+bias_model = read.csv('../../3_results/3_ddm/simulations/sim_traj_amyg/bias/Sim1.csv', header = T)
+bias_model$stim = 0
+bias_model = dplyr::filter(bias_model, condition != 0)
+
+bias_model$motivation = ifelse(bias_model$condition == -1, 
+                          'Face', ifelse(bias_model$condition == 1,
+                          'Scene',
+                          'NA'))
+
+bias_model$motivation = factor(bias_model$motivation)
+
+bias_model_quantile = group_by(bias_model,subj_idx) %>%
+  dplyr::summarise(median = median(amyg))
+
+bias_model = left_join(bias_model, bias_model_quantile)
+
+bias_model$AmygMedian = ifelse(bias_model$amyg > bias_model$median,
+                             "High",
+                             "Low")
+  
+CRF_bias = bias_model %>%
+  group_by(subj_idx, motivation, stim, AmygMedian) %>%
+  mutate(RT = factor(findInterval(rt, quantile(rt, 0.5)), labels = c('Fast','Slow'))) %>%
+  group_by(subj_idx, motivation, RT, AmygMedian) %>%
+  dplyr::summarise(meanC = mean(response), SE = sem(response)) %>%
+  group_by(motivation, RT, AmygMedian) %>%
+  dplyr::summarise(p_scene = mean(meanC), SE = sem(meanC))
+
+CRF_bias$type = "z"
+
+```
+
+```{r}
+bias_model_subj = bias_model %>%
+  group_by(subj_idx, motivation, AmygMedian) %>%
+  mutate(RT = factor(findInterval(rt, quantile(rt, 0.5)), labels = c('Fast','Slow'))) %>%
+  group_by(subj_idx, motivation, RT, AmygMedian) %>%
+  dplyr::summarise(meanC = mean(response), SE = sem(response))
+
+```
+
+## Plot
+
+``` {r fig.width = 8, fig.height = 3}
+CRF_Model = bind_rows(CRF_full, CRF_drift, CRF_bias)
+
+myPalette <- c("#C44E52","#4C72B0","#C44E52","#4C72B0")
+
+ggplot(CRF_drift, aes(x = RT, y = p_scene, color = motivation)) +
+  geom_point(size = 2.75, alpha = 1) +
+  geom_errorbar(aes(ymin = p_scene - SE, ymax = p_scene + SE), width = .1) +
+  scale_colour_manual(values=myPalette) +
+  facet_grid(type ~ AmygMedian) +
+  theme(axis.title.x = element_text(size=18),
+        axis.title.y = element_text(size=18),
+        axis.text.x  = element_text(size=16),
+        axis.text.y  = element_text(size=16),
+        axis.line = element_line(colour = "black"),
+        #legend.position="none",
+        panel.background = element_rect(fill="white"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        strip.background.x = element_blank(),
+        strip.background.y = element_blank(),
+        strip.text.x = element_text(face = "bold", size = 14),
+        strip.text.y = element_text(face = "bold", size = 14)) +
+  ylab("p(Response = Scene)") +
+  ylim(0.43, 0.85)
+
+```
+
+``` {r fig.width = 8, fig.height = 3}
+ggplot(CRF_bias, aes(x = RT, y = p_scene, color = motivation)) +
+  geom_point(size = 2.75, alpha = 1) +
+  geom_errorbar(aes(ymin = p_scene - SE, ymax = p_scene + SE), width = .1) +
+  scale_colour_manual(values=myPalette) +
+  facet_grid(type ~ AmygMedian) +
+  theme(axis.title.x = element_text(size=18),
+        axis.title.y = element_text(size=18),
+        axis.text.x  = element_text(size=16),
+        axis.text.y  = element_text(size=16),
+        axis.line = element_line(colour = "black"),
+        #legend.position="none",
+        panel.background = element_rect(fill="white"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        strip.background.x = element_blank(),
+        strip.background.y = element_blank(),
+        strip.text.x = element_text(face = "bold", size = 14),
+        strip.text.y = element_text(face = "bold", size = 14)) +
+  ylab("p(Response = Scene)") +
+  ylim(0.43, 0.85)
+
+```
+
+``` {r fig.width = 8, fig.height = 3}
+ggplot(CRF_full, aes(x = RT, y = p_scene, color = motivation)) +
+  geom_point(size = 2.75, alpha = 1) +
+  geom_errorbar(aes(ymin = p_scene - SE, ymax = p_scene + SE), width = .1) +
+  scale_colour_manual(values=myPalette) +
+  facet_grid(type ~ AmygMedian) +
+  theme(axis.title.x = element_text(size=18),
+        axis.title.y = element_text(size=18),
+        axis.text.x  = element_text(size=16),
+        axis.text.y  = element_text(size=16),
+        axis.line = element_line(colour = "black"),
+        #legend.position="none",
+        panel.background = element_rect(fill="white"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        strip.background.x = element_blank(),
+        strip.background.y = element_blank(),
+        strip.text.x = element_text(face = "bold", size = 14),
+        strip.text.y = element_text(face = "bold", size = 14)) +
+  ylab("p(Response = Scene)")  +
+  ylim(0.43, 0.85)
+
+```

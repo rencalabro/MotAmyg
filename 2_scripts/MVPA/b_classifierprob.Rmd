@@ -1,0 +1,124 @@
+---
+title: "Classifier Probability"
+output: html_document
+---
+
+```{r import_libraries, echo = FALSE, warning=FALSE,message=FALSE}
+rm(list=(ls()))
+
+library("tidyr")
+library("dplyr")
+library("ggplot2")
+library("lme4")
+library("lmerTest")
+library("Hmisc")
+library("car")
+library("cowplot")
+library("grid")
+
+sem <- function(x) {sd(x,na.rm = T) / sqrt(length(x))}
+ci95 <- function(x) {sem(x) * 1.96}
+theta <- function(x,xdata,na.rm=T) {mean(xdata[x],na.rm=na.rm)}
+ci.low <- 
+  function(x,na.rm=T) {mean(x,na.rm=na.rm) - quantile(bootstrap(1:length(x),10000,theta,x,na.rm=na.rm)$thetastar,.025,na.rm=na.rm)}
+ci.high <- 
+  function(x,na.rm=T) {quantile(bootstrap(1:length(x),10000,theta,x,na.rm=na.rm)$thetastar,.975,na.rm=na.rm) - mean(x,na.rm=na.rm)}
+
+myPalette <- c("#C44E52","#4C72B0","#C44E52","#4C72B0")
+
+design = 'align_native_delete1_trialbetas_copemap_scaled'
+
+```
+
+```{r}
+# Subjects to run
+Sub = c("2013","2015","2016","2017","2018","2019","2020","2021","2022","2024",
+"2027","2028","2029","2030","2031","2032","2033","2034","2035","2036","2038",
+"2039","2040","2041","2042","2043","2044","2045","2046","2047")
+
+# Base Path
+base_path = file.path("../../3_results/4_TrialClassification",design,"TrainTrial/vvs")  
+AllData = NULL;
+
+# Load data for all subjects
+for (s in Sub){
+  thisPath = file.path(base_path,paste0(s,".csv"))
+  thisFile = read.csv(thisPath,header = FALSE)
+  colnames(thisFile) = c("Con","Pred","Cat","Choice","Prob")
+  thisFile$Sub = s
+  thisFile = thisFile[,c("Sub","Con","Pred","Cat","Choice","Prob")]
+  AllData = rbind(AllData,thisFile)
+}
+
+
+AllData$Sub = as.factor(AllData$Sub)
+AllData$Con = recode(AllData$Con,"1='Coop';2='Comp'")
+AllData$Con = factor(AllData$Con, levels = c('Coop','Comp'))
+
+AllData$Pred = AllData$Pred - 1;
+AllData$Pred = as.factor(AllData$Pred)
+AllData$Choice = (AllData$Choice - 1) * -1
+AllData$Cat_n = recode(AllData$Cat,"1=0;2=35;3=40;4=45;5=50;6=55;7=60;8=65;9=100")
+AllData$Cat = factor(AllData$Cat)
+
+cls_prob = AllData$Prob
+cls_prob = as.data.frame(cls_prob)
+
+write.csv(cls_prob,file.path("../../3_results/4_TrialClassification",design,"TrainTrial/vvs/AllProb.csv"), row.names = F)
+
+```
+
+```{r}
+# Read data
+AllData = read.csv("../../1_data/1_behav/AllData.csv")
+
+# Convert to factors
+AllData$Sub = as.factor(AllData$Sub)
+AllData$Pred = as.factor(AllData$Pred)
+AllData$Con = as.factor(AllData$Con)
+AllData$Con_Rev = factor(AllData$Con, levels = c('Coop','Comp'))
+AllData$Cat_n_z = scale(AllData$Cat_n)
+
+# Create New Variable indicating which category partcipants were motivated to see
+AllData$Want2See = car::recode(AllData$Want2See, "1='Scene'; 0='Face'")
+
+cls_prob = read.csv(file.path("../../3_results/4_TrialClassification",design,"TrainTrial/vvs/AllProb.csv"))
+
+AllData = cbind(AllData,cls_prob)
+
+AllData = filter(AllData,!is.na(Choice))
+```
+
+```{r fig.width = 5, fig.height = 4, warning = F, message = F}
+# Plot 
+toPlot = AllData %>% 
+  group_by(Sub,Cat_n, Want2See) %>% 
+  dplyr::summarise(Avg = mean(cls_prob, na.rm=T))
+
+plot.groupbias = ggplot(toPlot,aes(x=Cat_n,y=Avg,color = Want2See)) +
+  stat_summary(fun.y=mean,geom="point",size=2) +
+  stat_summary(fun.data = mean_cl_normal, geom = "errorbar",width=1,fun.args = list(mult = 1)) +
+    scale_colour_manual(values=myPalette) +
+  theme(legend.position="none",
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        panel.background = element_blank(),
+        axis.line = element_line(colour = "black"),
+        axis.text.x  = element_text(size=13,color="black"),
+        axis.text.y  = element_text(size=13,color="black"),
+        axis.title.x = element_text(size=15),
+        axis.title.y = element_text(size=15),
+        strip.background = element_blank(),
+        strip.text.x = element_text(face = "bold", size = 15)) +
+  coord_cartesian(ylim=c(0,1)) +
+  xlab("% Scene") + ylab("Classifier Probability (Scene)")
+
+res = lmer(cls_prob ~ Want2See + Cat_n_z + (Want2See|Sub), data = AllData)
+summary(res)
+```
+
+```{r fig.width = 5, fig.height = 4, warning = F, message = F}
+plot.groupbias 
+```
+
+

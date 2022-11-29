@@ -1,0 +1,117 @@
+---
+title: "Classification_Amygdala"
+output: html_document
+---
+
+```{r set-up, warning=FALSE, message=FALSE, results="hide"}
+# Clear workspace
+rm(list = ls())
+
+library("tidyr")
+library("dplyr")
+library("ggplot2")
+library("lme4")
+library("lmerTest")
+library("car")
+library("MASS")
+library("sfsmisc")
+library("cowplot")
+
+sem <- 
+  function(x) {sd(x,na.rm = T) / sqrt(length(x))}
+
+myPalette <- c("#C44E52","#4C72B0","#C44E52","#4C72B0")
+
+design = "cue_align_native"
+```
+
+```{r load-data}
+# Read data
+AllData = read.csv("../../1_data/1_behav/AllData.csv")
+
+# Convert to factors
+AllData$Sub = as.factor(AllData$Sub)
+AllData$Pred = as.factor(AllData$Pred)
+AllData$Want2See = as.factor(AllData$Want2See)
+AllData$Con = as.factor(AllData$Con)
+AllData$Con_Rev = factor(AllData$Con, levels = c('Coop','Comp'))
+AllData$Cat_n_z = scale(AllData$Cat_n)
+AllData$CatDiff = abs(50 - AllData$Cat_n)*2
+
+```
+
+```{r}
+roi_data = read.csv(file.path("../../3_results/2_glm", design, "cope/amygdala_harvard_bin50_cope.csv"),header=T)
+                    
+AllData = cbind(AllData,roi_data)
+
+cls_prob = read.csv(paste0("../../3_results/4_TrialClassification/", design, "_copemap_scaled/TrainTrial/vvs/log_l1/AllProb.csv"))
+
+AllData = cbind(AllData,cls_prob)
+
+AllData = filter(AllData,!is.na(Choice))
+```
+
+```{r}
+# M1
+summary(lmer(cls_prob ~ Cat_n_z + Want2See + amygdala_harvard_bin50_cope_scaled + Want2See*amygdala_harvard_bin50_cope_scaled + (Want2See + amygdala_harvard_bin50_cope_scaled + Want2See*amygdala_harvard_bin50_cope_scaled|Sub), data = AllData,
+             REML = FALSE,
+             control = lmerControl(optimizer = "Nelder_Mead")))
+```
+
+```{r}
+toPlot = AllData %>% 
+  group_by(Sub,Want2See,Cat_n) %>% 
+  dplyr::summarise(Avg = mean(cls_prob, na.rm=T))
+
+ggplot(toPlot,aes(x=Cat_n,y=Avg,color = Want2See)) +
+  stat_summary(fun.y=mean,geom="point",size=2) +
+  stat_summary(fun.data = mean_cl_normal, geom = "errorbar",width=1,fun.args = list(mult = 1)) +
+    scale_colour_manual(values=myPalette) +
+  theme(legend.position="none",panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  coord_cartesian(ylim=c(0,1))
+```
+
+### Median split by Amydala
+
+```{r}
+medianAmyg = AllData %>%
+  group_by(Sub) %>%
+  dplyr::summarise(medianAmyg = median(amygdala_harvard_bin50_cope_scaled))
+
+AllData = full_join(AllData,medianAmyg)
+
+AllData$amygmedian = ifelse(AllData$amygdala_harvard_bin50_cope_scaled > 
+                                      AllData$medianAmyg,
+                                      "High","Low")
+```
+
+``` {r}
+#M2
+summary(lmer(cls_prob ~ Cat_n_z + Want2See + (Want2See|Sub), data = subset(AllData,amygmedian == "Low"),
+             REML = FALSE, 
+             control = lmerControl(optimizer ="Nelder_Mead")))
+```
+
+``` {r}
+#M3
+summary(lmer(cls_prob ~ Cat_n_z + Want2See + (Want2See|Sub), data = subset(AllData,amygmedian == "High"),
+             REML = FALSE, 
+             control = lmerControl(optimizer ="Nelder_Mead")))
+```
+
+```{r fig.width = 5, fig.height=3}
+toPlot = AllData %>% 
+  group_by(Sub,Want2See,Cat_n,amygmedian) %>% 
+  dplyr::summarise(Avg = mean(cls_prob, na.rm=T))
+
+ggplot(toPlot,aes(x=Cat_n,y=Avg,color = Want2See)) +
+  stat_summary(fun.y=mean,geom="point",size=2) +
+  stat_summary(fun.data = mean_cl_normal, geom = "errorbar",width=1,fun.args = list(mult = 1)) +
+  facet_grid(~amygmedian) +
+    scale_colour_manual(values=myPalette) +
+  theme(legend.position="none",panel.grid.major = element_blank(), panel.grid.minor = element_blank(), 
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  coord_cartesian(ylim=c(0,1))
+```
