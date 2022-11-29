@@ -1,0 +1,79 @@
+---
+title: "Amygdala_S2"
+output: html_document
+---
+
+```{r set-up, warning=FALSE, message=FALSE, results="hide"}
+# Clear workspace
+rm(list = ls())
+# Load helper functions
+source('helper_functions.R')
+# Import libraries
+packages = c("tidyr","dplyr","ggplot2","lme4","lmerTest","Hmisc","car","lmtest","Rarity","cowplot")
+ipak(packages)
+# Redo long calculations
+redo_calc = 1;
+```
+
+### Load Data
+```{r load-data}
+# Read data
+AllData = read.csv("../../1_data/1_behav/AllData.csv")
+# Convert to factors
+AllData$Sub = as.factor(AllData$Sub)
+AllData$Pred = as.factor(AllData$Pred)
+AllData$Want2See = as.factor(AllData$Want2See)
+AllData$Con_Rev = factor(AllData$Con, levels = c('Coop','Comp'))
+```
+
+
+```{r fig.width = 10, fig.height = 8}
+# Plot RT
+AllData_ValidTrials = filter(AllData, !(is.na(Choice)))
+AllData_ValidTrials$RT_Rev = as.numeric(as.character(AllData_ValidTrials$RT))
+AllData_ValidTrials$RT_Rev[AllData_ValidTrials$Choice < 0.5] = AllData_ValidTrials$RT_Rev[AllData_ValidTrials$Choice < 0.5] * - 1
+AllData_ValidTrials$Want2See = ifelse(AllData_ValidTrials$Want2See == "0", "MotFace", "MotScene")
+AllData_ValidTrials$Want2See = factor(AllData_ValidTrials$Want2See)
+PPC = read.csv("../../3_results/3_ddm/ppc/cue_full_model_ppc.csv", header = F)
+
+# Wrangle data
+colnames(PPC) = c("index","p_rt","p_response","Sub","stim","response","rt","condition","mot_con")
+PPC$Sub = as.factor(PPC$Sub)
+PPC$p_response = ifelse(PPC$p_rt > 0, 1, 0)
+PPC$RT_Rev = PPC$p_rt
+PPC$Want2See = ifelse(PPC$condition < 0, "MotFace", "MotScene")
+PPC$Want2See = factor(PPC$Want2See)
+
+# Recode subject
+AllSub = NULL
+AllSub$Sub = unique(AllData_ValidTrials$Sub)
+AllSub$SubID = c(1:30)
+AllSub = as.data.frame(AllSub)
+AllSub$SubID = factor(AllSub$SubID)
+AllData_ValidTrials = left_join(AllData_ValidTrials,AllSub)
+PPC = left_join(PPC,AllSub)
+PPC_timebound = PPC[(abs(PPC$p_rt) < 4) & (abs(PPC$p_rt) > 0.3),]
+PPC_positive = PPC_timebound[PPC_timebound$p_rt > 0,]
+PPC_negative = PPC_timebound[PPC_timebound$p_rt < 0,]
+
+ggplot() + 
+  geom_histogram(data = AllData_ValidTrials,  aes(x = RT_Rev, y = ..ncount..)) +
+  geom_line(data = PPC_timebound, stat = "density", aes(x = RT_Rev, y = ..scaled..), size = 1.5, color='red', alpha = 0.6) +
+  xlab("RT(s)") + ylab("Probability") +
+  facet_wrap(~ SubID + Want2See, nrow = 6) +
+  coord_cartesian(xlim = c(-4.1, 4.1)) +
+  theme(axis.title.x = element_text(size=18),
+        axis.title.y = element_text(size=18),
+        axis.text.x  = element_text(face = "bold", size=10),
+        axis.text.y  = element_text(face = "bold", size=10),
+        axis.line = element_line(colour = "black"),
+        #legend.position="none",
+        panel.background = element_rect(fill="white"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        strip.background.x = element_blank(),
+        strip.background.y = element_blank(),
+        strip.text.x = element_text(face = "bold", size = 12),
+        strip.text.y = element_text(face = "bold", size = 12))
+```
+**Observed and predicted choice and RT distribution of each participant.** RTs for MotFace responses were sign-flipped for illustration purposes. For each participant, we plot the RT distributions for MotFace (negative RTs) and MotScene responses (positive RTs) separately for when the participant was motivated to see more MotFace (MotFace) and for when the participant was motivated to see more MotScene (MotScene). Blue line indicates model-predicted choice and RT distributions.
